@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Byte Share</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg1:#e6f0ff;--bg2:#f7fbff;
+  --accent:#3b82f6;--accent2:#7c3aed;
+  --radius:16px;--shadow:0 10px 36px rgba(15,23,42,.08)
+}
+*{box-sizing:border-box}
+body{
+  margin:0;font-family:Inter;
+  background:linear-gradient(180deg,var(--bg1),var(--bg2));
+  display:flex;justify-content:center;align-items:center;padding:30px
+}
+.wrap{
+  max-width:980px;width:100%;
+  display:grid;grid-template-columns:1fr 380px;gap:40px
+}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+
+.card,.panel{
+  background:#fff;border-radius:var(--radius);
+  padding:28px;box-shadow:var(--shadow)
+}
+textarea,input{
+  width:100%;padding:14px;
+  border-radius:12px;border:1px solid #ddd
+}
+textarea{
+  min-height:150px;
+  resize:vertical;
+}
+
+.btn{
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  border:none;color:#fff;
+  padding:14px;border-radius:12px;
+  font-weight:700;cursor:pointer
+}
+.btn.ghost{background:none;color:var(--accent2)}
+
+.drop{
+  border:2px dashed #c7d2fe;
+  padding:18px;border-radius:12px;
+  display:flex;gap:14px;align-items:center;
+  cursor:pointer
+}
+.thumb{
+  width:60px;height:60px;
+  border-radius:12px;
+  background:#f1f5f9;
+  display:grid;place-items:center
+}
+
+.result{
+  background:#ecfdf5;
+  padding:16px;border-radius:12px;
+  margin-top:14px
+}
+
+/* ===== SCROLLABLE RETRIEVED TEXT ===== */
+#retrieved-text{
+  white-space: pre-wrap;
+  font-family: monospace;
+
+  height:150px;          /* same as textarea */
+  overflow-y:auto;       /* enable scroll */
+  padding:14px;
+  border:1px solid #d1d5db;
+  border-radius:12px;
+  background:#ffffff;
+}
+
+/* COPY BUTTON */
+.copy-btn{
+  margin-top:10px;
+  background:#059669;color:#fff;
+  border:none;padding:10px 14px;
+  border-radius:10px;
+  cursor:pointer;font-weight:600
+}
+
+.toast-wrap{position:fixed;right:20px;bottom:20px}
+.toast{
+  padding:12px 16px;border-radius:12px;
+  color:#fff;margin-top:10px
+}
+.toast.success{background:#059669}
+.toast.error{background:#dc2626}
+.toast.info{background:#2563eb}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+<!-- SEND -->
+<div class="card">
+<h1>Byte Share</h1>
+<p>Send text or files and get a unique ID.</p>
+
+<textarea id="text-input" placeholder="Write message..."></textarea><br><br>
+
+<div id="drop" class="drop">
+  <div class="thumb" id="thumb-preview">📄</div>
+  <div>Click or drag file (max 100MB)</div>
+  <input type="file" id="file-input" hidden>
+</div><br>
+
+<button id="send-btn" class="btn">Send & Get ID</button>
+<button id="clear-btn" class="btn ghost">Clear</button>
+
+<div id="send-result" style="display:none;margin-top:20px">
+  <b>Your Share ID:</b>
+  <div id="unique-id-display"
+       style="margin-top:6px;font-family:monospace;font-size:18px"></div>
+</div>
+</div>
+
+<!-- RETRIEVE -->
+<div class="panel">
+<h3>Retrieve by ID</h3>
+
+<input id="retrieve-id" placeholder="Enter ID"><br><br>
+<button id="retrieve-btn" class="btn">Retrieve</button>
+<button id="retrieve-clear" class="btn ghost">Reset</button>
+
+<div id="retrieved-display" style="display:none">
+  <div class="result">
+    <div id="retrieved-text"></div>
+    <button id="copy-btn" class="copy-btn">Copy Text</button>
+    <a id="retrieved-download"
+       style="display:none;margin-top:10px;font-weight:700"
+       download></a>
+  </div>
+</div>
+</div>
+
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+const API_URL = "http://localhost:5000";
+
+// Elements
+const textInput = document.getElementById("text-input");
+const fileInput = document.getElementById("file-input");
+const thumb = document.getElementById("thumb-preview");
+const drop = document.getElementById("drop");
+
+const sendBtn = document.getElementById("send-btn");
+const clearBtn = document.getElementById("clear-btn");
+const sendResult = document.getElementById("send-result");
+const uniqueIdDisplay = document.getElementById("unique-id-display");
+
+const retrieveBtn = document.getElementById("retrieve-btn");
+const retrieveId = document.getElementById("retrieve-id");
+const retrieveClear = document.getElementById("retrieve-clear");
+const retrievedDisplay = document.getElementById("retrieved-display");
+const retrievedText = document.getElementById("retrieved-text");
+const retrievedDownload = document.getElementById("retrieved-download");
+const copyBtn = document.getElementById("copy-btn");
+
+const toasts = document.getElementById("toasts");
+
+// Toast
+function toast(msg,type="info"){
+  const t=document.createElement("div");
+  t.className="toast "+type;
+  t.textContent=msg;
+  toasts.appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+
+// File select
+drop.onclick=()=>fileInput.click();
+fileInput.onchange=()=>{
+  if(fileInput.files[0]){
+    thumb.textContent=fileInput.files[0].name.slice(0,10);
+  }
+};
+
+// Clear send
+clearBtn.onclick=()=>{
+  textInput.value="";
+  fileInput.value="";
+  thumb.textContent="📄";
+  sendResult.style.display="none";
+};
+
+// SEND
+sendBtn.onclick = async () => {
+  if (!textInput.value && !fileInput.files[0]) {
+    toast("Add text or file","error");
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append("text", textInput.value);
+  if (fileInput.files[0]) fd.append("file", fileInput.files[0]);
+
+  try {
+    const r = await fetch(API_URL + "/api/upload", {
+      method:"POST",
+      body:fd
+    });
+
+    if (!r.ok) {
+      toast("Upload failed","error");
+      return;
+    }
+
+    const j = await r.json();
+    const id = j.unique_id || j.uniqueId || j.id;
+
+    if (!id) {
+      toast("Server did not return ID","error");
+      return;
+    }
+
+    uniqueIdDisplay.textContent = id;
+    sendResult.style.display = "block";
+    toast("Uploaded successfully","success");
+
+  } catch {
+    toast("Server error","error");
+  }
+};
+
+// RETRIEVE
+retrieveBtn.onclick = async () => {
+  const id = retrieveId.value.trim();
+  if (!id) {
+    toast("Enter ID","error");
+    return;
+  }
+
+  try {
+    const r = await fetch(API_URL + "/api/retrieve/" + encodeURIComponent(id));
+    if (!r.ok) {
+      toast("Not found","error");
+      return;
+    }
+
+    const j = await r.json();
+    retrievedText.textContent = j.text || "";
+    retrievedDisplay.style.display="block";
+
+    if (j.file_id) {
+      retrievedDownload.style.display="block";
+      retrievedDownload.href = API_URL + "/api/download/" + j.file_id;
+      retrievedDownload.textContent = "Download " + j.filename;
+    } else {
+      retrievedDownload.style.display="none";
+    }
+
+    toast("Retrieved successfully","success");
+
+  } catch {
+    toast("Server error","error");
+  }
+};
+
+// COPY TEXT
+copyBtn.onclick = () => {
+  navigator.clipboard.writeText(retrievedText.textContent);
+  toast("Text copied","success");
+};
+
+// RESET RETRIEVE
+retrieveClear.onclick = () => {
+  retrieveId.value="";
+  retrievedDisplay.style.display="none";
+};
+</script>
+</body>
+</html>
